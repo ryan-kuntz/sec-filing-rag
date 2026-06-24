@@ -1,0 +1,25 @@
+# Environment
+.env
+.env.*
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+
+# Data files (reproducible via ingestion pipeline)
+data/raw/
+data/processed/
+data/chunks/
+data/embeddings/
+
+# Eval results (generated at runtime)
+evaluation/results/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Qdrant local storage
+qdrant_storage/
