@@ -156,11 +156,6 @@ for fast repeated queries.
 
 ## Known Limitations & Future Improvements
 
-- **Financial table extraction:** Numerical data in XBRL tables is not reliably 
-  extracted by the current HTML parser. Future work includes implementing a 
-  dedicated XBRL parser to extract structured financial data such as revenue, 
-  earnings per share, and balance sheet figures.
-
 - **Gemini free tier rate limits:** The current setup uses Gemini 2.5 Flash on 
   the free tier, which is limited to 5 requests per minute and 25 requests per 
   day. This makes running large eval sets slow and requires rate limiting logic 

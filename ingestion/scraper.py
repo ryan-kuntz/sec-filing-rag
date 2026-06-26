@@ -13,6 +13,8 @@ HEADERS = {
 
 COMPANIES = {
     "apple": "0000320193",
+    "microsoft": "0000789019", 
+    "google": "0001652044"
 }
 
 

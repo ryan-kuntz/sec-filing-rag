@@ -6,65 +6,64 @@ RAW_DATA_PATH = Path("data/raw")
 PROCESSED_DATA_PATH = Path("data/processed")
 PROCESSED_DATA_PATH.mkdir(parents=True, exist_ok=True)
 
-# Note: This section relies on Apple HTML formatting and will likely break for other tech companies
-def is_section_header(text: str, style: str) -> bool:
-    """
-    Identify major 10-K section headers by their text and style.
-    """
-    is_bold = "font-weight:700" in style
-    is_9pt = "font-size:9pt" in style
-    is_item = re.match(r"^Item\s+\d+[A-Z]?\.", text.strip())
-    return is_bold and is_9pt and is_item is not None
+ITEM_PATTERN = re.compile(
+    r"^\s*(Item\s+\d+[A-C]?)\.",
+    re.MULTILINE | re.IGNORECASE
+)
+
+MIN_SECTION_LENGTH = 200
 
 
-def clean_text(text: str) -> str:
-    """
-    Clean up common artifacts in SEC HTML text.
-    """
-    text = text.replace("\xa0", " ")  # non-breaking spaces
-    text = re.sub(r"\s+", " ", text)  # collapse whitespace
-    return text.strip()
+def _item_sort_key(label: str) -> tuple:
+    match = re.match(r"Item (\d+)([A-C])?", label)
+    return (int(match.group(1)), match.group(2) or "")
 
 
 def parse_10k(html_path: Path) -> dict:
     """
-    Parse a 10-K HTML file into clean sections keyed by Item number.
+    Parse a 10-K HTML file into clean sections keyed by standardized Item number.
+    Works across all companies — uses regex on plain text rather than style-based detection.
     """
     with open(html_path, "rb") as f:
         soup = BeautifulSoup(f, "html.parser")
 
-    # Remove noise tags
     for tag in soup(["script", "style", "meta", "noscript"]):
         tag.decompose()
 
+    plain_text = soup.get_text(separator="\n", strip=True)
+    plain_text = re.sub(r"\xa0", " ", plain_text)
+    plain_text = re.sub(r"\n{3,}", "\n\n", plain_text)
+
+    # Find all "Item X." occurrences, capturing only the item number
+    all_matches = []
+    for match in ITEM_PATTERN.finditer(plain_text):
+        raw_label = match.group(1).strip()
+        normalized = re.sub(r"\s+", " ", raw_label).title()
+        all_matches.append({"label": normalized, "position": match.start()})
+
+    # Filter out TOC entries — real headers have substantial content before the next match
+    real_headers = []
+    for i, m in enumerate(all_matches):
+        next_pos = all_matches[i + 1]["position"] if i + 1 < len(all_matches) else len(plain_text)
+        if next_pos - m["position"] > MIN_SECTION_LENGTH:
+            real_headers.append(m)
+
+    # Extract content and deduplicate (keep the occurrence with the most content)
     sections = {}
-    current_section = None
-    current_text = []
+    for i, h in enumerate(real_headers):
+        start = h["position"]
+        end = real_headers[i + 1]["position"] if i + 1 < len(real_headers) else len(plain_text)
 
-    for span in soup.find_all("span"):
-        text = span.get_text(separator=" ", strip=True)
-        style = span.get("style", "")
+        content = plain_text[start:end]
+        first_newline = content.find("\n")
+        if first_newline != -1:
+            content = content[first_newline:].strip()
 
-        if not text:
-            continue
+        label = h["label"]
+        if label not in sections or len(content) > len(sections[label]):
+            sections[label] = content
 
-        text = clean_text(text)
-
-        if is_section_header(text, style):
-            # Save previous section
-            if current_section and current_text:
-                sections[current_section] = "\n\n".join(current_text)
-            current_section = text
-            current_text = []
-        else:
-            if current_section and len(text) > 30:
-                current_text.append(text)
-
-    # Save last section
-    if current_section and current_text:
-        sections[current_section] = "\n\n".join(current_text)
-
-    return sections
+    return dict(sorted(sections.items(), key=lambda x: _item_sort_key(x[0])))
 
 
 def save_sections(company: str, sections: dict):
@@ -75,9 +74,7 @@ def save_sections(company: str, sections: dict):
     company_path.mkdir(parents=True, exist_ok=True)
 
     for section_name, text in sections.items():
-        # Create clean filename from section name
-        clean_name = re.sub(r"[^\w\s]", "", section_name)
-        clean_name = clean_name.replace(" ", "_")[:50]
+        clean_name = section_name.replace(" ", "_")
         filepath = company_path / f"{clean_name}.txt"
         filepath.write_text(text, encoding="utf-8")
         print(f"  Saved: {filepath} ({len(text)} chars)")
