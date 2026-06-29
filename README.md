@@ -65,6 +65,7 @@ docker run -p 6333:6333 qdrant/qdrant
 ```bash
 PYTHONPATH=. python ingestion/scraper.py
 PYTHONPATH=. python ingestion/parser.py
+PYTHONPATH=. python ingestion/xbrl_parser.py
 PYTHONPATH=. python ingestion/chunker.py
 PYTHONPATH=. python ingestion/embedder.py
 PYTHONPATH=. python retrieval/vector_store.py
@@ -85,11 +86,19 @@ list of companies. Uses each company's CIK number to retrieve their most
 recent annual filing. No API key required — EDGAR is a free public resource.
 
 **`ingestion/parser.py`**
-Parses the raw HTML filings using BeautifulSoup. Identifies major 10-K 
-sections (Item 1, Item 1A, Item 7, etc.) by detecting bold 9pt span tags 
-with "Item X." patterns — the consistent formatting convention used across 
-SEC filings. Each section is saved as a separate .txt file, preserving 
-document structure for downstream chunking.
+Extracts narrative text sections from the raw HTML filings. Strips HTML to 
+plain text and uses regex to identify section headers (`Item 1.`, `Item 1A.`, 
+etc.) — the standardized numbering required by the SEC. A content-length 
+heuristic filters out table-of-contents entries, and duplicate sections are 
+resolved by keeping the longer occurrence. Works across all companies without 
+per-company tuning.
+
+**`ingestion/xbrl_parser.py`**
+Extracts structured financial data from inline XBRL tags (`ix:nonFraction`) 
+embedded in the filing HTML. Pulls a curated set of ~25 key metrics (revenue, 
+net income, EPS, assets, cash flow, etc.) with their periods and segment 
+breakdowns, then converts them into natural language sentences for embedding 
+alongside narrative text.
 
 **`ingestion/chunker.py`**
 Implements section-aware chunking — respecting section boundaries while 
