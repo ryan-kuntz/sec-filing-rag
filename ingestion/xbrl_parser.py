@@ -134,11 +134,11 @@ def extract_xbrl(html_path: Path, company: str) -> list[str]:
     return sentences
 
 
-def save_xbrl(company: str, sentences: list[str]):
-    company_path = PROCESSED_DATA_PATH / company
-    company_path.mkdir(parents=True, exist_ok=True)
+def save_xbrl(company: str, fiscal_year: str, sentences: list[str]):
+    output_path = PROCESSED_DATA_PATH / company / fiscal_year
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    filepath = company_path / "xbrl_financials.txt"
+    filepath = output_path / "xbrl_financials.txt"
     filepath.write_text("\n".join(sentences), encoding="utf-8")
     print(f"  Saved: {filepath} ({len(sentences)} sentences)")
 
@@ -151,10 +151,16 @@ def parse_all_xbrl():
         company = company_dir.name
         print(f"\nExtracting XBRL for {company.upper()}...")
 
-        for html_file in company_dir.glob("*.html"):
-            sentences = extract_xbrl(html_file, company)
-            print(f"  Found {len(sentences)} financial data points")
-            save_xbrl(company, sentences)
+        for year_dir in company_dir.iterdir():
+            if not year_dir.is_dir():
+                continue
+
+            fiscal_year = year_dir.name
+
+            for html_file in year_dir.glob("*.html"):
+                sentences = extract_xbrl(html_file, company)
+                print(f"  Found {len(sentences)} financial data points ({fiscal_year})")
+                save_xbrl(company, fiscal_year, sentences)
 
 
 if __name__ == "__main__":

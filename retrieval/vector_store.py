@@ -50,9 +50,14 @@ def upsert_embeddings(client: QdrantClient, chunks: list[dict]):
             payload={
                 "chunk_id": chunk["chunk_id"],
                 "company": chunk["company"],
+                "fiscal_year": chunk.get("fiscal_year"),
                 "section": chunk["section"],
                 "chunk_index": chunk["chunk_index"],
-                "text": chunk["text"]
+                "text": chunk["text"],
+                "accession_number": chunk.get("accession_number"),
+                "filing_date": chunk.get("filing_date"),
+                "report_date": chunk.get("report_date"),
+                "source_url": chunk.get("source_url"),
             }
         ))
 

@@ -32,15 +32,29 @@ def split_into_chunks(text: str, chunk_size: int, overlap: int) -> list[str]:
     return chunks
 
 
-def chunk_company(company: str) -> list[dict]:
+def load_filing_metadata(year_path: Path) -> dict:
     """
-    Chunk all sections for a company into metadata-rich chunk objects.
+    Load the filing_metadata.json sidecar for a company/fiscal_year folder, if present.
     """
-    company_path = PROCESSED_DATA_PATH / company
+    metadata_file = year_path / "filing_metadata.json"
+    if not metadata_file.exists():
+        return {}
+
+    with open(metadata_file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def chunk_filing(company: str, fiscal_year: str) -> list[dict]:
+    """
+    Chunk all sections for one company's filing (a single fiscal year)
+    into metadata-rich chunk objects.
+    """
+    year_path = PROCESSED_DATA_PATH / company / fiscal_year
+    filing_metadata = load_filing_metadata(year_path)
     all_chunks = []
 
-    for section_file in sorted(company_path.glob("*.txt")):
-        section_name = section_file.stem  # e.g. "Item_1A_Risk_Factors"
+    for section_file in sorted(year_path.glob("*.txt")):
+        section_name = section_file.stem  # e.g. "Item_1A"
         text = section_file.read_text(encoding="utf-8")
 
         if not text.strip():
@@ -50,13 +64,18 @@ def chunk_company(company: str) -> list[dict]:
 
         for i, chunk_text in enumerate(chunks):
             all_chunks.append({
-                "chunk_id": f"{company}_{section_name}_{i}",
+                "chunk_id": f"{company}_{fiscal_year}_{section_name}_{i}",
                 "company": company,
+                "fiscal_year": fiscal_year,
                 "section": section_name,
                 "chunk_index": i,
                 "total_chunks_in_section": len(chunks),
                 "text": chunk_text,
-                "word_count": len(chunk_text.split())
+                "word_count": len(chunk_text.split()),
+                "accession_number": filing_metadata.get("accession_number"),
+                "filing_date": filing_metadata.get("filing_date"),
+                "report_date": filing_metadata.get("report_date"),
+                "source_url": filing_metadata.get("source_url"),
             })
 
     return all_chunks
@@ -79,14 +98,23 @@ def chunk_all():
 
         company = company_dir.name
         print(f"\nChunking {company.upper()}...")
-        chunks = chunk_company(company)
-        save_chunks(company, chunks)
-        
+
+        all_chunks = []
+        for year_dir in sorted(company_dir.iterdir()):
+            if not year_dir.is_dir():
+                continue
+
+            fiscal_year = year_dir.name
+            all_chunks.extend(chunk_filing(company, fiscal_year))
+
+        save_chunks(company, all_chunks)
+
         # Print summary stats
-        sections = set(c["section"] for c in chunks)
+        sections = set(c["section"] for c in all_chunks)
         print(f"  Sections: {len(sections)}")
-        print(f"  Total chunks: {len(chunks)}")
-        print(f"  Avg words per chunk: {sum(c['word_count'] for c in chunks) // len(chunks)}")
+        print(f"  Total chunks: {len(all_chunks)}")
+        if all_chunks:
+            print(f"  Avg words per chunk: {sum(c['word_count'] for c in all_chunks) // len(all_chunks)}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from pathlib import Path
 import re
+import shutil
 
 RAW_DATA_PATH = Path("data/raw")
 PROCESSED_DATA_PATH = Path("data/processed")
@@ -80,12 +81,12 @@ def parse_10k(html_path: Path) -> dict:
     return dict(sorted(sections.items(), key=lambda x: _item_sort_key(x[0])))
 
 
-def save_sections(company: str, sections: dict):
+def save_sections(company: str, fiscal_year: str, sections: dict):
     """
-    Save each section as a separate .txt file under data/processed/<company>/
+    Save each section as a separate .txt file under data/processed/<company>/<fiscal_year>/
     """
-    company_path = PROCESSED_DATA_PATH / company
-    company_path.mkdir(parents=True, exist_ok=True)
+    output_path = PROCESSED_DATA_PATH / company / fiscal_year
+    output_path.mkdir(parents=True, exist_ok=True)
 
     for section_name, text in sections.items():
         if section_name not in HIGH_VALUE_SECTIONS:
@@ -93,7 +94,7 @@ def save_sections(company: str, sections: dict):
             continue
 
         clean_name = section_name.replace(" ", "_")
-        filepath = company_path / f"{clean_name}.txt"
+        filepath = output_path / f"{clean_name}.txt"
         filepath.write_text(text, encoding="utf-8")
         print(f"  Saved: {filepath} ({len(text)} chars)")
 
@@ -106,10 +107,22 @@ def parse_all():
         company = company_dir.name
         print(f"\nParsing {company.upper()}...")
 
-        for html_file in company_dir.glob("*.html"):
-            sections = parse_10k(html_file)
-            print(f"  Found {len(sections)} sections")
-            save_sections(company, sections)
+        for year_dir in company_dir.iterdir():
+            if not year_dir.is_dir():
+                continue
+
+            fiscal_year = year_dir.name
+
+            for html_file in year_dir.glob("*.html"):
+                sections = parse_10k(html_file)
+                print(f"  Found {len(sections)} sections ({fiscal_year})")
+                save_sections(company, fiscal_year, sections)
+
+            metadata_file = year_dir / "filing_metadata.json"
+            if metadata_file.exists():
+                output_path = PROCESSED_DATA_PATH / company / fiscal_year
+                output_path.mkdir(parents=True, exist_ok=True)
+                shutil.copy(metadata_file, output_path / "filing_metadata.json")
 
 
 if __name__ == "__main__":
