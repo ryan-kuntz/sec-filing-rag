@@ -60,7 +60,12 @@ def chunk_filing(company: str, fiscal_year: str) -> list[dict]:
         if not text.strip():
             continue
 
-        chunks = split_into_chunks(text, CHUNK_SIZE, CHUNK_OVERLAP)
+        # XBRL sentences are atomic self-contained facts — chunk one per line
+        # rather than grouping into 500-word blocks like narrative text.
+        if section_name == "xbrl_financials":
+            chunks = [line for line in text.splitlines() if line.strip()]
+        else:
+            chunks = split_into_chunks(text, CHUNK_SIZE, CHUNK_OVERLAP)
 
         for i, chunk_text in enumerate(chunks):
             all_chunks.append({
