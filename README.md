@@ -82,15 +82,23 @@ PYTHONPATH=. python retrieval/vector_store.py
 
 **`ingestion/scraper.py`**
 Downloads 10-K filings directly from the SEC EDGAR API for a configurable 
-list of companies. Uses each company's CIK number to retrieve their most 
-recent annual filing. No API key required — EDGAR is a free public resource.
+list of companies. Uses each company's CIK number to retrieve the `NUM_FILINGS` 
+(default 3) most recent annual filings per company, giving multi-year XBRL 
+trend data and several narrative snapshots for comparison. Each filing is saved 
+under `data/raw/<company>/<fiscal_year>/`, alongside a `filing_metadata.json` 
+sidecar (accession number, filing date, report date, source URL). Already-downloaded 
+years are skipped on rerun. No API key required — EDGAR is a free public resource.
 
 **`ingestion/parser.py`**
 Extracts narrative text sections from the raw HTML filings. Strips HTML to 
 plain text and uses regex to identify section headers (`Item 1.`, `Item 1A.`, 
 etc.) — the standardized numbering required by the SEC. A content-length 
 heuristic filters out table-of-contents entries, and duplicate sections are 
-resolved by keeping the longer occurrence. Works across all companies without 
+resolved by keeping the longer occurrence. Only `HIGH_VALUE_SECTIONS` (Business, 
+Risk Factors, Cybersecurity, Legal Proceedings, MD&A, Market Risk, Financial 
+Statements) are saved — boilerplate sections like Properties or Mine Safety are 
+dropped to reduce retrieval noise. Output mirrors the raw data's 
+`<company>/<fiscal_year>/` structure. Works across all companies without 
 per-company tuning.
 
 **`ingestion/xbrl_parser.py`**
@@ -103,8 +111,12 @@ alongside narrative text.
 **`ingestion/chunker.py`**
 Implements section-aware chunking — respecting section boundaries while 
 further splitting large sections into overlapping chunks of ~500 words with 
-50-word overlap. Each chunk carries metadata including company name, section, 
-and chunk index, enabling precise citation in generated answers.
+50-word overlap. XBRL financial sentences are the exception: since each line 
+is already an atomic, self-contained fact, they're chunked one sentence per 
+chunk rather than grouped into 500-word blocks. Each chunk carries metadata 
+including company name, fiscal year, section, chunk index, and filing 
+provenance (accession number, filing/report date, source URL), enabling 
+precise citation in generated answers.
 
 **`ingestion/embedder.py`**
 Generates dense vector embeddings for all chunks using `BAAI/bge-m3`, a 
@@ -147,11 +159,20 @@ question types across key 10-K sections. Expected answers were derived directly
 from the processed filing text to ensure ground truth accuracy.
 
 **`evaluation/run_evals.py`**
-Runs each test question through the full RAG pipeline and evaluates generated 
-answers against expected answers using semantic similarity via bge-m3 embeddings. 
-Results are saved as timestamped JSON files in `evaluation/results/` with per-question 
-scores and a summary breakdown by question type. A similarity threshold of 0.75 
-determines pass/fail for each question.
+Runs each test question through the full RAG pipeline (retrieval + generation) 
+and evaluates generated answers against expected answers using semantic similarity 
+via bge-m3 embeddings. Results are saved as timestamped JSON files in 
+`evaluation/results/` with per-question scores and a summary breakdown by question 
+type. A similarity threshold of 0.75 determines pass/fail for each question. This 
+is the **Layer 2** (generation quality) eval — see Notes below.
+
+**`evaluation/eval_retrieval.py`**
+Evaluates retrieval in isolation — no generation call, no API cost. For each 
+test question, runs `hybrid_search` and checks whether the chunks retrieved 
+actually come from the section named in `section_hint`. Reports hit rate@K, 
+precision@K, and MRR (mean reciprocal rank), saved to `evaluation/results/`. 
+This is the **Layer 1** (retrieval quality) eval, intended to isolate retrieval 
+or chunking changes from generation-model variance — see Notes below.
 
 ### Frontend
 
@@ -171,6 +192,15 @@ for fast repeated queries.
   in the eval runner. Upgrading to the paid tier or switching to OpenAI 
   GPT-4o-mini would remove these constraints at minimal cost.
 
+- **Short, definitional facts can lose to numerically-dense chunks:** Baseline 
+  retrieval eval (`eval_retrieval.py`) found one consistent miss — "When does 
+  Apple's fiscal year end?" retrieves `Item_8`/XBRL chunks instead of `Item_1`. 
+  The correct answer is a single short sentence in Item 1, while Item_8 and the 
+  XBRL chunks are saturated with literal fiscal-year-end dates repeated across 
+  dozens of facts, pulling both dense and sparse search away from the actual 
+  definitional sentence. Worth re-checking this specific question after any 
+  chunking or retrieval change.
+
 
 ---
 
@@ -183,3 +213,13 @@ for fast repeated queries.
 - **LLM:** Google Gemini 2.5 Flash
 - **Frontend:** Streamlit
 - **Data Source:** SEC EDGAR API (free, no authentication required)
+
+
+## Notes: 
+
+When evaluating RAG effectiveness, there are two layers to consider
+
+- Layer 1 — Retrieval quality (no LLM calls needed, completely free)
+- Layer 2 — Generation quality (the expensive layer, needs an LLM)
+
+- For comparing retrieval/chunking strategies, the choice of generation LLM used during iteration is mostly a free variable you can optimize for cost (use the free local model for the bulk of testing) — but it's worth one final confirmation pass with the real production model before you declare a winner, since model strength can change how much a retrieval flaw actually matters. The embedding model is the opposite case: it's part of retrieval itself, not a stand-in you can swap freely, so if you ever change it, that's a Layer 1 experiment in its own right, not a constant to hold while testing something else.
