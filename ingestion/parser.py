@@ -13,6 +13,20 @@ ITEM_PATTERN = re.compile(
 
 MIN_SECTION_LENGTH = 200
 
+# Sections worth chunking and embedding for financial research.
+# Excludes boilerplate/stub sections (Properties, Reserved, Mine Safety,
+# governance/exhibits) that add retrieval noise without research value.
+HIGH_VALUE_SECTIONS = {
+    "Item 1",    # Business
+    "Item 1A",   # Risk Factors
+    "Item 1C",   # Cybersecurity
+    "Item 3",    # Legal Proceedings
+    "Item 5",    # Market for Registrant's Common Equity
+    "Item 7",    # MD&A
+    "Item 7A",   # Quantitative and Qualitative Disclosures About Market Risk
+    "Item 8",    # Financial Statements and Supplementary Data
+}
+
 
 def _item_sort_key(label: str) -> tuple:
     match = re.match(r"Item (\d+)([A-C])?", label)
@@ -74,6 +88,10 @@ def save_sections(company: str, sections: dict):
     company_path.mkdir(parents=True, exist_ok=True)
 
     for section_name, text in sections.items():
+        if section_name not in HIGH_VALUE_SECTIONS:
+            print(f"  Skipped (low-value): {section_name}")
+            continue
+
         clean_name = section_name.replace(" ", "_")
         filepath = company_path / f"{clean_name}.txt"
         filepath.write_text(text, encoding="utf-8")
