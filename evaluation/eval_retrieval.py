@@ -35,12 +35,24 @@ def normalize_section(section_hint: str) -> str:
     return match.group(0) if match else section_hint
 
 
-def score_retrieval(retrieved: list[dict], expected_section: str) -> dict:
+def score_retrieval(retrieved: list[dict], expected_section: str, expected_company: str) -> dict:
     """
-    Score one question's retrieval against its expected section.
+    Score one question's retrieval against its expected section and company.
+    For cross-company questions (expected_company is blank), only the section
+    check applies — any company's chunk from the right section counts as a hit.
     """
+    cross_company = not expected_company
+
     retrieved_sections = [r["section"] for r in retrieved]
-    hits = [i for i, s in enumerate(retrieved_sections) if s == expected_section]
+    retrieved_companies = [r["company"] for r in retrieved]
+
+    if cross_company:
+        hits = [i for i, s in enumerate(retrieved_sections) if s == expected_section]
+    else:
+        hits = [
+            i for i, (s, c) in enumerate(zip(retrieved_sections, retrieved_companies))
+            if s == expected_section and c == expected_company
+        ]
 
     hit = len(hits) > 0
     precision_at_k = len(hits) / len(retrieved_sections) if retrieved_sections else 0.0
@@ -50,7 +62,9 @@ def score_retrieval(retrieved: list[dict], expected_section: str) -> dict:
         "hit": hit,
         "precision_at_k": round(precision_at_k, 4),
         "reciprocal_rank": round(reciprocal_rank, 4),
+        "cross_company": cross_company,
         "retrieved_sections": retrieved_sections,
+        "retrieved_companies": retrieved_companies,
     }
 
 
@@ -69,19 +83,24 @@ def run_retrieval_eval(top_k: int = TOP_K):
     for i, test in enumerate(test_cases):
         question = test["question"]
         expected_section = normalize_section(test["section_hint"])
+        expected_company = test.get("company_hint") or ""
+        if isinstance(expected_company, float):
+            expected_company = ""
 
         print(f"[{i+1}/{len(test_cases)}] {question[:60]}...")
 
         retrieved = hybrid_search(client, model, bm25, chunks, question, top_k=top_k)
-        scores = score_retrieval(retrieved, expected_section)
+        scores = score_retrieval(retrieved, expected_section, expected_company)
 
         results.append({
             "question": question,
             "expected_section": expected_section,
+            "expected_company": expected_company or "(cross-company)",
             **scores,
         })
 
-        print(f"  Hit: {scores['hit']} | Precision@{top_k}: {scores['precision_at_k']} | RR: {scores['reciprocal_rank']}")
+        company_label = expected_company or "cross-company"
+        print(f"  Hit: {scores['hit']} | Precision@{top_k}: {scores['precision_at_k']} | RR: {scores['reciprocal_rank']} | {company_label}")
 
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -101,6 +120,15 @@ def run_retrieval_eval(top_k: int = TOP_K):
     print(f"Hit rate@{top_k}: {hit_rate*100:.1f}%")
     print(f"Avg precision@{top_k}: {avg_precision:.4f}")
     print(f"MRR: {mrr:.4f}")
+
+    print(f"\nBy company:")
+    for company in ["apple", "microsoft", "google", "(cross-company)"]:
+        subset = [r for r in results if r["expected_company"] == company]
+        if subset:
+            subset_hit_rate = sum(r["hit"] for r in subset) / len(subset)
+            subset_mrr = sum(r["reciprocal_rank"] for r in subset) / len(subset)
+            print(f"  {company}: {subset_hit_rate*100:.1f}% hit rate | MRR {subset_mrr:.4f} ({len(subset)} questions)")
+
     print(f"\nResults saved to: {output_path}")
 
 
