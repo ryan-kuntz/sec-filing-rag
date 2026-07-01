@@ -39,25 +39,46 @@ st.markdown("Query and compare SEC 10-K filings using natural language.")
 with st.sidebar:
     st.header("About")
     st.markdown("""
-    This tool uses a multi-document RAG pipeline to answer questions 
+    This tool uses a multi-document RAG pipeline to answer questions
     about SEC 10-K filings.
-    
+
     **Current Companies:**
     - Apple (AAPL)
-    
+    - Microsoft (MSFT)
+    - Google / Alphabet (GOOGL)
+
     **Pipeline:**
     - Hybrid search (dense + BM25)
     - Reciprocal Rank Fusion
     - Gemini 2.5 Flash generation
     """)
 
+    st.header("Company Filter")
+    company_options = {
+        "All Companies": None,
+        "Apple (AAPL)": "apple",
+        "Microsoft (MSFT)": "microsoft",
+        "Google (GOOGL)": "google"
+    }
+    selected_label = st.selectbox(
+        "Filter retrieval by company:",
+        options=list(company_options.keys()),
+        index=0
+    )
+    company_filter = company_options[selected_label]
+    if company_filter is None:
+        st.caption("Searches across all companies. Use for cross-company questions.")
+    else:
+        st.caption(f"Retrieval filtered to {selected_label}. Switch to All Companies for cross-company questions.")
+
     st.header("Example Questions")
     example_questions = [
         "What are Apple's biggest risk factors?",
         "How does Apple describe its AI strategy?",
         "What new products did Apple announce in 2025?",
-        "How does Apple describe competition in its markets?",
-        "What does Apple say about tariffs and trade policy?"
+        "How does Microsoft describe Azure revenue growth?",
+        "How does Google describe its AI infrastructure investment?",
+        "Compare how Apple and Microsoft each describe competition."
     ]
     for q in example_questions:
         if st.button(q, use_container_width=True):
@@ -74,7 +95,7 @@ if st.button("Search", type="primary"):
     if query:
         with st.spinner("Retrieving and generating answer..."):
             client, model, bm25, chunks = load_components()
-            retrieved = hybrid_search(client, model, bm25, chunks, query)
+            retrieved = hybrid_search(client, model, bm25, chunks, query, company_filter=company_filter)
             result = synthesize(query, retrieved)
 
         # Answer

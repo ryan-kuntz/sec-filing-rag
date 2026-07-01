@@ -89,7 +89,7 @@ def run_retrieval_eval(top_k: int = TOP_K):
 
         print(f"[{i+1}/{len(test_cases)}] {question[:60]}...")
 
-        retrieved = hybrid_search(client, model, bm25, chunks, question, top_k=top_k)
+        retrieved = hybrid_search(client, model, bm25, chunks, question, top_k=top_k, company_filter=expected_company or None)
         scores = score_retrieval(retrieved, expected_section, expected_company)
 
         results.append({

@@ -132,10 +132,14 @@ for dense retrieval.
 
 **`retrieval/hybrid_search.py`**
 Implements hybrid search combining:
-- **Dense retrieval** — semantic search via bge-m3 embeddings in Qdrant
+- **Dense retrieval** — semantic search via bge-m3 embeddings in Qdrant, supports
+  an optional `company_filter` to scope results to a single company's chunks
 - **Sparse retrieval** — keyword search via BM25 (rank-bm25)
 - **Reciprocal Rank Fusion (RRF)** — combines both result sets into a single 
   ranked list, improving recall over either method alone
+
+Note: `company_filter` only applies to dense search — BM25 scores all chunks
+regardless of company. See Known Limitations.
 
 ### Generation Pipeline
 
@@ -157,9 +161,12 @@ claim traces back to a specific company and section of a specific 10-K filing.
 ### Evaluation Pipeline
 
 **`evaluation/test_set.csv`**
-A hand-curated set of 10 question/answer pairs covering factual and analytical 
-question types across key 10-K sections. Expected answers were derived directly 
-from the processed filing text to ensure ground truth accuracy.
+A hand-curated set of 25 question/answer pairs covering factual and analytical
+question types across Apple, Microsoft, Google, and cross-company comparative
+questions. Columns: `question`, `expected_answer`, `question_type`,
+`section_hint` (which 10-K section contains the answer), and `company_hint`
+(which company to filter retrieval to — blank for cross-company questions).
+Expected answers are derived directly from processed filing text.
 
 **`evaluation/run_evals.py`**
 Runs each test question through the full RAG pipeline (retrieval + generation) 
@@ -190,10 +197,14 @@ or chunking changes from generation-model variance — see Notes below.
 ### Frontend
 
 **`app/app.py`**
-A Streamlit web application providing a natural language interface for querying 
-the RAG system. Features include a sidebar with example questions, expandable 
-source citations showing the exact retrieved text, and cached model loading 
-for fast repeated queries.
+A Streamlit web application providing a natural language interface for querying
+the RAG system. Features include:
+- **Company filter** — sidebar dropdown to scope retrieval to a single company
+  (Apple, Microsoft, Google) or search across all three. Defaults to all companies;
+  set to a specific company for focused single-company research and switch back to
+  all companies for cross-company comparative questions.
+- Expandable source citations showing the exact retrieved text
+- Cached model loading for fast repeated queries
 
 ---
 
@@ -211,6 +222,12 @@ for fast repeated queries.
   rate on the 10-question set was 30% vs an expected ~80%+ with Gemini. Treat 
   Ollama eval results as relative signals for comparing strategy A vs B, not as 
   absolute quality scores.
+
+- **BM25 is not filtered by company:** The `company_filter` in `hybrid_search.py`
+  only applies to dense (Qdrant) search. BM25 scores against all chunks regardless
+  of company, meaning other companies' chunks can still surface in hybrid results
+  even when a filter is active. A future improvement would pre-filter the BM25
+  candidate pool to the selected company before scoring.
 
 - **Short, definitional facts can lose to numerically-dense chunks:** Baseline 
   retrieval eval (`eval_retrieval.py`) found one consistent miss — "When does 

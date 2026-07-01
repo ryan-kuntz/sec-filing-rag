@@ -112,12 +112,15 @@ def hybrid_search(
     bm25: BM25Okapi,
     chunks: list[dict],
     query: str,
-    top_k: int = TOP_K
+    top_k: int = TOP_K,
+    company_filter: str = None
 ) -> list[dict]:
     """
     Combine dense and sparse results using Reciprocal Rank Fusion (RRF).
+    company_filter restricts dense search to a single company's chunks.
+    Note: BM25 is not filtered — it scores all chunks regardless of company.
     """
-    dense_results = dense_search(client, model, query, top_k=top_k * 2)
+    dense_results = dense_search(client, model, query, company_filter=company_filter, top_k=top_k * 2)
     sparse_results = sparse_search(bm25, chunks, query, top_k=top_k * 2)
 
     # Reciprocal Rank Fusion
