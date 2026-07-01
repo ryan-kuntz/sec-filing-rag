@@ -57,6 +57,12 @@ def extract_numbers(text: str) -> set[float]:
         if unit and unit.lower() in MULTIPLIERS:
             value *= MULTIPLIERS[unit.lower()]
 
+        # Skip bare 4-digit calendar years (1900–2100) and small day-of-month
+        # integers (≤31, no unit) — these appear in date phrases like "fiscal year
+        # 2025" or "December 31" and are not financial figures the answer must cite.
+        if not unit and value == int(value) and (1900 <= value <= 2100 or value <= 31):
+            continue
+
         numbers.add(value)
 
     return numbers
