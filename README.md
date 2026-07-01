@@ -147,9 +147,12 @@ prompts in a dedicated file makes iteration and experimentation easier
 without touching the core generation logic.
 
 **`generation/synthesizer.py`**
-Takes retrieved chunks and generates a cited answer using Google Gemini 2.5 
-Flash. Structures the response with source attribution so every claim traces 
-back to a specific company and section of a specific 10-K filing.
+Takes retrieved chunks and generates a cited answer. Supports two backends 
+via a `use_local` flag — Gemini 2.5 Flash (default, production quality) and 
+Ollama/llama3.1:8b (local, free, no quota). The local backend is intended 
+for eval iteration runs where Gemini's 25/day quota would otherwise block 
+repeated testing. Structures the response with source attribution so every 
+claim traces back to a specific company and section of a specific 10-K filing.
 
 ### Evaluation Pipeline
 
@@ -160,11 +163,21 @@ from the processed filing text to ensure ground truth accuracy.
 
 **`evaluation/run_evals.py`**
 Runs each test question through the full RAG pipeline (retrieval + generation) 
-and evaluates generated answers against expected answers using semantic similarity 
-via bge-m3 embeddings. Results are saved as timestamped JSON files in 
-`evaluation/results/` with per-question scores and a summary breakdown by question 
-type. A similarity threshold of 0.75 determines pass/fail for each question. This 
-is the **Layer 2** (generation quality) eval — see Notes below.
+and evaluates generated answers against expected answers using two independent 
+scoring signals — both free and local, no additional API cost:
+- **Semantic similarity** (bge-m3 cosine similarity ≥ 0.75) — catches meaning/phrasing drift
+- **Numeric match** (regex extraction with 1% tolerance) — catches factually wrong figures 
+  that cosine similarity alone would miss (e.g. "$391B" vs "$132.4B" with similar phrasing)
+
+A question only passes if both checks pass. Supports `--local` flag to route generation 
+through Ollama/llama3.1:8b instead of Gemini — use this for frequent iteration runs to 
+avoid burning Gemini quota. Results are saved as timestamped JSON files in 
+`evaluation/results/`. This is the **Layer 2** (generation quality) eval — see Notes below.
+
+```bash
+python -m evaluation.run_evals          # Gemini (production model, use sparingly)
+python -m evaluation.run_evals --local  # Ollama (free, unlimited, for iteration)
+```
 
 **`evaluation/eval_retrieval.py`**
 Evaluates retrieval in isolation — no generation call, no API cost. For each 
@@ -188,9 +201,16 @@ for fast repeated queries.
 
 - **Gemini free tier rate limits:** The current setup uses Gemini 2.5 Flash on 
   the free tier, which is limited to 5 requests per minute and 25 requests per 
-  day. This makes running large eval sets slow and requires rate limiting logic 
-  in the eval runner. Upgrading to the paid tier or switching to OpenAI 
-  GPT-4o-mini would remove these constraints at minimal cost.
+  day. This is mitigated by routing eval iteration runs through a local Ollama 
+  model (`--local` flag), reserving Gemini calls for final validation passes only.
+
+- **Similarity threshold is calibrated for Gemini, not Ollama:** The 0.75 cosine 
+  similarity threshold was implicitly set for Gemini's output style. Ollama answers 
+  tend to be more verbose and phrased differently from expected answers, producing 
+  lower similarity scores even when the meaning is correct — baseline Ollama pass 
+  rate on the 10-question set was 30% vs an expected ~80%+ with Gemini. Treat 
+  Ollama eval results as relative signals for comparing strategy A vs B, not as 
+  absolute quality scores.
 
 - **Short, definitional facts can lose to numerically-dense chunks:** Baseline 
   retrieval eval (`eval_retrieval.py`) found one consistent miss — "When does 
